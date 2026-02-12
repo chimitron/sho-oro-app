@@ -43,6 +43,8 @@ try {
     echo json_encode([
         'history'          => $rows,
         'tokens_remaining' => $tokensRemaining,
+        // Fecha y hora exacta en que cron.php guardó el último precio
+        'last_updated'     => $latestRow ? $latestRow['recorded_at'] : null,
         'count'            => count($rows),
         'days'             => $days,
     ]);

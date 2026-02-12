@@ -115,6 +115,7 @@
 
         let goldPrice = 0;
         let selectedKt = 750;
+        let lastCronTime = null; // Hora del último cron (viene de la DB, no del dispositivo)
 
         const calcW = (f, m) => (f * m) - 2.50;
         const calcR = (w, extra) => (w * 0.94) - 6.00 + extra; // Se aplica el extra aquí
@@ -157,9 +158,9 @@
                 const silverBid = findSilverBid(data);
                 if (bid) {
                     goldPrice = parseFloat(bid);
-                    // Mostramos la hora exacta de la última sincronización
-                    const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-                    text.innerText = `Sincronizado · ${hora}`;
+                    // Usamos la hora del último cron (guardada por fetchHistory desde la DB)
+                    // Si aún no ha llegado ese dato, mostramos "Conectado" de forma provisional
+                    text.innerText = lastCronTime ? `Sincronizado · ${lastCronTime}` : 'Conectado';
                     text.className = "text-green-600 font-bold";
                     dot.className = "w-1.5 h-1.5 bg-green-500 rounded-full";
                     // Mostramos el precio de la plata si viene en la respuesta
@@ -259,6 +260,19 @@
                 } else {
                     document.getElementById('price-chart').classList.add('hidden');
                     document.getElementById('chart-empty').classList.remove('hidden');
+                }
+
+                // Guardamos la hora real del último cron (campo "recorded_at" de la DB)
+                if (data.last_updated) {
+                    const d = new Date(data.last_updated.replace(' ', 'T') + 'Z');
+                    lastCronTime = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+                    // Si fetchPrices ya terminó (badge ya es verde), corregimos la hora
+                    const dot = document.getElementById('status-dot');
+                    const statusText = document.getElementById('status-text');
+                    if (dot.classList.contains('bg-green-500')) {
+                        statusText.innerText = `Sincronizado · ${lastCronTime}`;
+                    }
                 }
             } catch (e) {
                 document.getElementById('price-chart').classList.add('hidden');
