@@ -209,6 +209,117 @@ Se genera en JavaScript con `new Date().toLocaleTimeString()` en el momento de l
 
 ---
 
+### 10. Git, GitHub y el incidente de seguridad (lección importante)
+
+Esta sección merece detalle porque enseña más que muchos tutoriales.
+
+#### Qué es Git y para qué sirve
+
+**Git** es un sistema de control de versiones. Guarda una foto del proyecto cada vez que haces un commit. Puedes volver atrás en el tiempo, ver qué cambió y por qué.
+
+**GitHub** es un servicio en la nube que guarda esas fotos online. Es como un Google Drive para código, pero mucho más potente.
+
+#### Cómo lo configuramos
+
+```bash
+# Instalar la herramienta de GitHub para terminal
+brew install gh
+
+# Autenticarse con tu cuenta de GitHub (abre el navegador)
+gh auth login
+
+# Configurar tu identidad en Git
+git config --global user.name "chimi"
+git config --global user.email "chimi@chimi.es"
+
+# Inicializar el repositorio en el proyecto
+git init
+
+# Añadir los archivos al siguiente commit (respetando .gitignore)
+git add index.html bridge.php db.php api.php cron.php logo.png README.md PROGRESO.md .gitignore
+
+# Crear el commit
+git commit -m "Primer commit — descripción del cambio"
+
+# Crear el repositorio en GitHub y subir el código
+gh repo create sho-oro-app --public --source=. --remote=origin --push
+```
+
+#### El incidente: una clave secreta en el historial de Git
+
+**Qué pasó:** Al escribir el PROGRESO.md se incluyó la clave real de la API como ejemplo de "cómo no hacerlo". Se hizo el commit y se subió a GitHub.
+
+**Por qué fue un problema:** Aunque en el siguiente commit se corrigió el texto con un placeholder, **Git guarda todos los cambios para siempre**. El commit original seguía siendo visible públicamente:
+
+```bash
+# Cualquier persona podía ejecutar esto y ver la clave
+git show 4ac0ca7 -- PROGRESO.md
+```
+
+**Cómo se resolvió:**
+
+La solución fue reescribir completamente el historial de Git — borrar los commits anteriores y crear uno nuevo limpio que nunca había contenido la clave:
+
+```bash
+# 1. Borrar todo el historial de Git (solo los commits, no los archivos)
+rm -rf .git
+
+# 2. Inicializar repo de cero
+git init
+
+# 3. Añadir solo los archivos ya limpios
+git add ...
+
+# 4. Crear el único commit limpio
+git commit -m "Primer commit limpio"
+
+# 5. Forzar la sobreescritura en GitHub (reemplaza el historial remoto)
+git push --force origin main
+```
+
+El `--force` en el push es una operación destructiva que normalmente hay que evitar en proyectos con más personas. En este caso era la solución correcta porque el historial contaminado era el problema.
+
+**Aprendizaje clave:** En Git, "corrijo el error en el siguiente commit" no basta cuando el error es una credencial expuesta. Hay que reescribir la historia. Y la mejor solución es no llegar ahí: **revisar siempre qué va en cada commit antes de hacerlo**.
+
+---
+
+### 11. Cómo trabajar con Claude Code desde VS Code
+
+#### Qué es Claude Code
+
+Claude Code es un agente de IA de Anthropic que vive en la terminal de VS Code. No es un chatbot — es un agente que puede leer archivos, ejecutar comandos, editar código y conectarse a servicios externos, todo dentro del proyecto.
+
+#### Skills: conocimiento especializado bajo demanda
+
+Los **skills** son módulos de conocimiento que Claude carga cuando los necesita. En este proyecto hay dos activos:
+
+- **`php-basics`** — Se activa al trabajar con archivos PHP. Contiene patrones, buenas prácticas y ejemplos específicos para hosting compartido sin frameworks.
+- **`sqlite-basics`** — Se activa al trabajar con bases de datos. Contiene cómo usar SQLite3 en PHP de forma segura.
+
+Los skills evitan tener que repetir el contexto en cada sesión. Claude sabe cómo trabaja este proyecto específico.
+
+#### Cómo se trabajó en esta sesión
+
+El flujo fue siempre el mismo:
+
+1. **Describir el problema o el objetivo** en lenguaje natural
+2. **Claude lee el código** antes de proponer cambios
+3. **Claude explica** qué va a hacer y por qué
+4. **Se revisa** antes de aplicar
+5. **Se prueba en local** antes de subir al servidor
+6. **Se despliega** via FTP al servidor de producción
+
+Esto es diferente a simplemente "pedirle código a la IA". El agente tiene contexto del proyecto completo, recuerda decisiones anteriores y detecta inconsistencias entre archivos.
+
+#### Lo que aprendí sobre trabajar con IA en desarrollo
+
+- La IA es más útil cuando el desarrollador entiende lo que está pidiendo, aunque no sepa cómo implementarlo
+- Revisar el código que propone enseña más que copiarlo sin más
+- Los errores que comete la IA (como el de la API key en el PROGRESO.md) son oportunidades de aprendizaje sobre seguridad y buenas prácticas
+- La combinación VS Code + Claude Code convierte la terminal en un entorno de desarrollo guiado
+
+---
+
 ## Estado Actual del Proyecto
 
 - [x] App funciona en local (`http://localhost:8000`)
@@ -220,6 +331,8 @@ Se genera en JavaScript con `new Date().toLocaleTimeString()` en el momento de l
 - [x] Calculadora de liquidación por peso
 - [x] Hora de última sincronización visible
 - [x] Logo e icono de la app
+- [x] Repositorio Git inicializado y subido a GitHub
+- [x] Historial de Git limpio (sin credenciales expuestas)
 
 ---
 
@@ -235,6 +348,12 @@ Se genera en JavaScript con `new Date().toLocaleTimeString()` en el momento de l
 | **API key** | Clave secreta para autenticarse en servicios externos |
 | **.gitignore** | Archivo que le dice a Git qué archivos ignorar |
 | **BID price** | Precio al que el mercado compra (el más favorable para vender) |
+| **Git** | Sistema de control de versiones — guarda el historial de cambios del código |
+| **GitHub** | Plataforma online para alojar repositorios Git y colaborar |
+| **git commit** | Foto del estado del proyecto en un momento concreto |
+| **git push --force** | Sobreescribe el historial remoto — operación destructiva, usar con cuidado |
+| **Claude Code** | Agente IA de Anthropic integrado en VS Code con acceso al proyecto completo |
+| **Skills (Claude)** | Módulos de conocimiento especializado que Claude carga según el contexto |
 
 ---
 
