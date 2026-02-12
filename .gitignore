@@ -1,0 +1,12 @@
+# Credenciales — nunca subir a repositorios
+config.php
+.vscode/sftp.json
+
+# Base de datos SQLite (se crea automáticamente en el servidor)
+data/
+
+# Logs
+*.log
+
+# Archivos del sistema macOS
+.DS_Store

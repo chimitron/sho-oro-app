@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SHO | Gestión de Márgenes V25</title>
+    
+    <link rel="icon" type="image/png" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="SHO Oro">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
+            background-color: #f8fafc; 
+            color: #0f172a; 
+        }
+        .h-header { height: 48px; }
+        .status-pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body class="min-h-screen pb-24">
+
+    <header class="sticky top-0 z-50 h-header px-4 border-b bg-white border-slate-200 shadow-sm">
+        <div class="max-w-md mx-auto h-full flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <img src="logo.png" alt="SHO" class="w-7 h-7 rounded-md object-cover shadow-sm">
+                <h1 class="font-black text-xl tracking-[0.1em] uppercase italic leading-none text-slate-900">SHO</h1>
+            </div>
+            
+            <div id="status-badge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-50 border border-slate-100 text-[8px] font-black uppercase tracking-widest italic">
+                <span id="status-dot" class="w-1.5 h-1.5 bg-amber-500 rounded-full status-pulse"></span>
+                <span id="status-text" class="text-slate-500">Sincronizando...</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-md mx-auto px-4 pt-6 text-center">
+        <section class="mb-6">
+            <p class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1 italic leading-none">BID Oficial (EUR/Gr)</p>
+            <div id="fixing-price" class="text-6xl font-black tracking-tighter tabular-nums mb-3 italic leading-none text-slate-900">0.00 €/gr</div>
+            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-100 border border-slate-200">
+                <span class="text-[9px] font-black uppercase tracking-widest italic text-slate-500">Precio Plata</span>
+                <span id="silver-price" class="text-sm font-black tabular-nums text-slate-900">—</span>
+                <span class="text-[9px] font-black uppercase tracking-widest italic text-slate-500">€/gr</span>
+            </div>
+        </section>
+
+        <section class="mb-6 bg-white rounded-[1.5rem] border border-slate-200 shadow-sm p-4">
+            <p class="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mb-3 italic leading-none text-left">Evolución 7 días (EUR/Gr)</p>
+            <div id="chart-empty" class="hidden text-center py-6 text-[10px] text-slate-400 italic">Sin datos históricos aún</div>
+            <canvas id="price-chart" height="140"></canvas>
+        </section>
+
+        <div id="price-list" class="space-y-3 text-left"></div>
+    </main>
+
+    <nav class="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-8 py-4 pb-8 flex justify-around items-center z-40">
+        <button class="flex flex-col items-center gap-1 text-amber-500">
+            <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+            <span class="text-[9px] font-black uppercase italic tracking-widest leading-none">Precios</span>
+        </button>
+        <button onclick="openCalc()" class="flex flex-col items-center gap-1 text-slate-400 hover:text-amber-500 transition-colors">
+            <i data-lucide="calculator" class="w-5 h-5"></i>
+            <span class="text-[9px] font-black uppercase italic tracking-widest leading-none">Calcular</span>
+        </button>
+    </nav>
+
+    <div id="calc-sheet" class="fixed inset-0 z-50 hidden flex items-end">
+        <div class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onclick="closeCalc()"></div>
+        <div id="calc-content" class="relative w-full bg-white rounded-t-[2.5rem] p-8 translate-y-full transition-transform duration-500 border-t border-slate-200 shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <div class="w-10 h-1 bg-slate-100 rounded-full"></div>
+                <button onclick="closeCalc()" class="h-9 w-9 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 active:bg-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="space-y-6 pb-6 text-slate-900">
+                <div class="grid grid-cols-3 gap-2" id="calc-kts-grid"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 shadow-inner">
+                        <label class="block text-[8px] font-black uppercase text-amber-600 mb-1 italic">Peso Gr.</label>
+                        <input type="number" id="input-weight" placeholder="0.00" class="bg-transparent w-full text-2xl font-black outline-none tabular-nums" inputmode="decimal">
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 shadow-inner">
+                        <label class="block text-[8px] font-black uppercase text-slate-400 mb-1 italic">Merma Gr.</label>
+                        <input type="number" id="input-merma" value="0" class="bg-transparent w-full text-2xl font-black outline-none tabular-nums text-slate-400" inputmode="decimal">
+                    </div>
+                </div>
+                <div class="bg-amber-500 p-6 rounded-3xl text-white shadow-xl shadow-amber-500/30">
+                    <p class="text-[8px] font-black uppercase opacity-90 mb-1 tracking-widest italic leading-none">Total Liquidación</p>
+                    <div id="calc-result" class="text-5xl font-black tracking-tighter tabular-nums leading-none">0.00€</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURACIÓN CON NUEVOS EXTRAS
+        const KTS = [
+            { l: '24KT', m: 1.000, p: 999, extra: 0.80 }, 
+            { l: '21KT', m: 0.900, p: 900, extra: 0.75 },
+            { l: '18KT', m: 0.750, p: 750, extra: 0.70 }, 
+            { l: '14KT', m: 0.535, p: 535, extra: 0.60 }, 
+            { l: '9KT', m: 0.375, p: 375, extra: 0.50 }
+        ];
+
+        let goldPrice = 0;
+        let selectedKt = 750;
+
+        const calcW = (f, m) => (f * m) - 2.50;
+        const calcR = (w, extra) => (w * 0.94) - 6.00 + extra; // Se aplica el extra aquí
+
+        function findGoldBid(obj) {
+            if (!obj || typeof obj !== 'object') return null;
+            if (obj.EUR && obj.EUR.bid) return obj.EUR.bid;
+            if (obj.eur && obj.eur.bid) return obj.eur.bid;
+            for (let key in obj) {
+                if (typeof obj[key] === 'object') {
+                    const found = findGoldBid(obj[key]);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+
+        // Busca específicamente el BID de la plata en EUR dentro del JSON de la API
+        function findSilverBid(obj) {
+            if (!obj || typeof obj !== 'object') return null;
+            // La plata viene bajo la clave "Silver" con su propio bloque EUR
+            if (obj.Silver && obj.Silver.EUR && obj.Silver.EUR.bid) return obj.Silver.EUR.bid;
+            if (obj.silver && obj.silver.EUR && obj.silver.EUR.bid) return obj.silver.EUR.bid;
+            for (let key in obj) {
+                if (typeof obj[key] === 'object') {
+                    const found = findSilverBid(obj[key]);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+
+        async function fetchPrices() {
+            const text = document.getElementById('status-text');
+            const dot = document.getElementById('status-dot');
+            try {
+                const res = await fetch('bridge.php?nocache=' + Date.now());
+                const data = await res.json();
+                const bid = findGoldBid(data);
+                const silverBid = findSilverBid(data);
+                if (bid) {
+                    goldPrice = parseFloat(bid);
+                    // Mostramos la hora exacta de la última sincronización
+                    const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                    text.innerText = `Sincronizado · ${hora}`;
+                    text.className = "text-green-600 font-bold";
+                    dot.className = "w-1.5 h-1.5 bg-green-500 rounded-full";
+                    // Mostramos el precio de la plata si viene en la respuesta
+                    if (silverBid) {
+                        document.getElementById('silver-price').innerText = parseFloat(silverBid).toFixed(2);
+                    }
+                    render();
+                } else { throw new Error(); }
+            } catch (e) {
+                text.innerText = "Error Red";
+                text.className = "text-red-500 font-bold";
+                dot.className = "w-1.5 h-1.5 bg-red-600 rounded-full";
+            }
+        }
+
+        function render() {
+            const list = document.getElementById('price-list');
+            list.innerHTML = '';
+            KTS.forEach(kt => {
+                const w = calcW(goldPrice, kt.m);
+                const r = calcR(w, kt.extra); // Pasamos el extra al cálculo
+                const diff = w - r;
+                
+                const card = document.createElement('div');
+                card.className = "p-4 rounded-[1.5rem] border bg-white border-slate-200 shadow-sm flex flex-col justify-between min-h-[110px] max-h-[150px] overflow-hidden";
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex flex-col">
+                            <span class="text-2xl font-black italic tracking-tighter text-slate-900 leading-none">${kt.l}</span>
+                            <span class="mt-1.5 px-2 py-0.5 rounded-full border border-slate-100 text-[8px] font-bold text-slate-400 w-fit leading-none shadow-inner">${kt.p}</span>
+                        </div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] font-black uppercase tracking-widest text-slate-400 italic mb-0.5 leading-none">NOS LO PAGAN A:</span>
+                            <span class="text-3xl font-black tabular-nums tracking-tighter text-slate-900 leading-none">${w.toFixed(2)}€</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 bg-slate-50 border border-slate-100 p-2.5 rounded-xl flex justify-between items-center">
+                        <div class="flex items-baseline gap-1.5">
+                            <span class="text-[8px] font-black uppercase tracking-widest text-slate-400 italic leading-none">COMPRAMOS A:</span>
+                            <span class="text-xl font-black tabular-nums text-slate-900 tracking-tighter leading-none">${r.toFixed(2)}€</span>
+                        </div>
+                        <div class="px-2 py-1 bg-green-500/10 rounded-lg shadow-inner leading-none">
+                            <span class="text-[9px] font-black text-green-600 italic tracking-tighter">+${diff.toFixed(2)}€/G</span>
+                        </div>
+                    </div>`;
+                list.appendChild(card);
+            });
+            document.getElementById('fixing-price').innerText = `${goldPrice.toFixed(2)} €/gr`;
+            runCalc();
+        }
+
+        function openCalc() { 
+            document.getElementById('calc-sheet').classList.remove('hidden'); 
+            setTimeout(() => document.getElementById('calc-content').classList.remove('translate-y-full'), 10); 
+            renderCalcKts(); 
+        }
+        
+        function closeCalc() { 
+            document.getElementById('calc-content').classList.add('translate-y-full'); 
+            setTimeout(() => document.getElementById('calc-sheet').classList.add('hidden'), 500); 
+        }
+
+        function renderCalcKts() {
+            const grid = document.getElementById('calc-kts-grid');
+            grid.innerHTML = '';
+            KTS.forEach(kt => {
+                const active = selectedKt === kt.p;
+                const btn = document.createElement('button');
+                btn.className = `p-4 rounded-2xl font-black text-[10px] border-2 transition-all ${active ? 'border-amber-500 bg-amber-500/10 text-amber-500' : 'border-slate-200 text-slate-400'}`;
+                btn.innerText = kt.l;
+                btn.onclick = () => { selectedKt = kt.p; renderCalcKts(); runCalc(); };
+                grid.appendChild(btn);
+            });
+        }
+
+        function runCalc() {
+            const weight = parseFloat(document.getElementById('input-weight').value) || 0;
+            const merma = parseFloat(document.getElementById('input-merma').value) || 0;
+            const kt = KTS.find(k => k.p === selectedKt);
+            const r = calcR(calcW(goldPrice, kt.m), kt.extra); // Aplicamos el extra en la calculadora
+            document.getElementById('calc-result').innerText = `${Math.max(0, (weight - merma) * r).toFixed(2)}€`;
+        }
+
+        // ── Historial y gráfica ──────────────────────────────────────────
+
+        let priceChart = null;
+
+        async function fetchHistory() {
+            try {
+                const res  = await fetch('api.php?action=history&days=7');
+                const data = await res.json();
+
+                if (data.history && data.history.length > 1) {
+                    renderChart(data.history);
+                } else {
+                    document.getElementById('price-chart').classList.add('hidden');
+                    document.getElementById('chart-empty').classList.remove('hidden');
+                }
+            } catch (e) {
+                document.getElementById('price-chart').classList.add('hidden');
+                document.getElementById('chart-empty').classList.remove('hidden');
+            }
+        }
+
+        function renderChart(history) {
+            const labels = history.map(r => {
+                const d = new Date(r.recorded_at.replace(' ', 'T') + 'Z');
+                return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
+                    + ' ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+            });
+            const prices = history.map(r => r.price_eur);
+
+            const ctx = document.getElementById('price-chart').getContext('2d');
+            if (priceChart) priceChart.destroy();
+
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: prices,
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245,158,11,0.08)',
+                        borderWidth: 2,
+                        pointRadius: history.length > 48 ? 0 : 2,
+                        pointHoverRadius: 4,
+                        tension: 0.4,
+                        fill: true,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.parsed.y.toFixed(2)} €/gr`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { maxTicksLimit: 5, font: { size: 9, weight: '700' }, color: '#94a3b8' },
+                            grid:  { display: false }
+                        },
+                        y: {
+                            ticks: { callback: v => v.toFixed(2) + '€', font: { size: 9 }, color: '#94a3b8' },
+                            grid:  { color: 'rgba(0,0,0,0.04)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ── Init ─────────────────────────────────────────────────────────
+
+        document.getElementById('input-weight').addEventListener('input', runCalc);
+        document.getElementById('input-merma').addEventListener('input', runCalc);
+        lucide.createIcons();
+        fetchPrices();
+        fetchHistory();
+        setInterval(fetchPrices, 1800000);
+        setInterval(fetchHistory, 1800000);
+    </script>
+</body>
+</html>
