@@ -77,7 +77,8 @@ oro-app/
 ├── config.php      # ⚠️ Credenciales API — NO subir a Git
 ├── logo.png        # Logo de la app
 └── data/
-    └── prices.db   # Base de datos SQLite (creada automáticamente)
+    ├── prices.db   # Base de datos SQLite (creada automáticamente)
+    └── cron.log    # Log del cron para diagnóstico remoto
 ```
 
 ---
@@ -320,16 +321,92 @@ Esto es diferente a simplemente "pedirle código a la IA". El agente tiene conte
 
 ---
 
+### 12. Fuente única de datos + detección cron caído + plata en BD
+
+**Fecha:** 13 febrero 2026
+
+#### El problema
+
+La app mostraba datos inconsistentes:
+- El **BID Oficial** (cabecera) venía de la API en vivo vía `bridge.php`
+- La **gráfica** y la **hora** venían de la base de datos vía `api.php`
+- Eran **dos fuentes de datos diferentes** que podían mostrar precios distintos
+- No había forma de saber si el cron había dejado de funcionar
+- La plata se mostraba en vivo pero no se guardaba en la base de datos
+
+#### La solución: fuente única de verdad
+
+Se rediseñó el flujo para que **todo venga de la base de datos** (una sola fuente):
+
+```
+ANTES (dos fuentes):
+  bridge.php → API vivo → BID + plata (desconectado de la gráfica)
+  api.php    → Base datos → gráfica + hora (desconectado del BID)
+
+AHORA (una fuente):
+  cron.php   → API → guarda oro + plata en BD
+  api.php    → BD → devuelve TODO (último precio, plata, historial)
+  index.html → api.php → muestra TODO sincronizado
+```
+
+#### Cambios realizados
+
+**`db.php` — 4 cambios:**
+- Nueva columna `silver_eur` en la tabla para guardar la plata
+- Migración automática (si la tabla ya existía sin esa columna, se añade sola)
+- `savePrice()` ahora recibe oro, plata y tokens
+- Nueva función `extractSilverBid()` que busca el BID de plata en el JSON de la API
+
+**`cron.php` — 3 cambios:**
+- Extrae y guarda el precio de la plata junto al oro
+- Comprobación de acceso más flexible (permite CLI y CGI, bloquea solo acceso web)
+- Log a fichero (`data/cron.log`) para poder diagnosticar problemas remotamente
+
+**`api.php` — 1 cambio:**
+- Añade bloque `latest` en la respuesta con el último precio de oro, plata y hora
+
+**`index.html` — Reescritura del JavaScript:**
+- Una sola función `fetchData()` que obtiene todo desde `api.php`
+- Detección de cron caído: si `last_updated` > 60 minutos → muestra "Error Cron · HH:MM" en rojo
+- Errores específicos: "Error Red", "Error Servidor", "Error BD", "Sin datos"
+- Refresco cada 5 minutos (antes eran 30)
+
+#### Bug del cron en el servidor
+
+**Síntoma:** El cron dejó de ejecutarse en el servidor.
+
+**Diagnóstico:** Se creó un script temporal de diagnóstico vía HTTP para inspeccionar el servidor. Se descubrió que:
+- `/usr/bin/php` en el servidor es **cgi-fcgi**, no CLI
+- `/usr/local/bin/php` es el **CLI** real
+- El cron.php bloqueaba cualquier SAPI que no fuera exactamente "cli"
+
+**Solución:**
+1. Relajar la comprobación en `cron.php` para permitir CGI (solo bloquear SAPIs web)
+2. Cambiar el cron en cPanel para usar la ruta completa: `/usr/local/bin/php /ruta/cron.php`
+
+#### Aprendizajes
+
+- **Una sola fuente de verdad** evita datos inconsistentes entre componentes
+- En **hosting compartido**, el comando `php` puede no ser el CLI esperado — usar siempre ruta completa
+- **Los logs a fichero** son esenciales cuando no tienes SSH para depurar en el servidor
+- Una **detección activa de fallos** (como el indicador de cron caído) es mejor que dejar al usuario adivinando
+
+---
+
 ## Estado Actual del Proyecto
 
 - [x] App funciona en local (`http://localhost:8000`)
 - [x] App funciona en producción (`https://superhiperoro.com/oro/`)
 - [x] Precios del oro por quilates (24KT, 21KT, 18KT, 14KT, 9KT)
-- [x] Precio de la plata en tiempo real
+- [x] Precio de la plata guardado en BD y visible en la app
 - [x] Gráfica de evolución 7 días
-- [x] Cron guardando un precio por hora
+- [x] Cron guardando oro + plata cada hora
 - [x] Calculadora de liquidación por peso
-- [x] Hora de última sincronización visible
+- [x] Hora de última sincronización visible (desde la BD, no del dispositivo)
+- [x] Detección automática de cron caído (> 60 min → "Error Cron")
+- [x] Errores específicos en cabecera (Error Red, Error Servidor, Error BD, Sin datos)
+- [x] Fuente única de datos (todo desde api.php, sin inconsistencias)
+- [x] Log del cron a fichero para diagnóstico remoto
 - [x] Logo e icono de la app
 - [x] Repositorio Git inicializado y subido a GitHub
 - [x] Historial de Git limpio (sin credenciales expuestas)
@@ -354,6 +431,9 @@ Esto es diferente a simplemente "pedirle código a la IA". El agente tiene conte
 | **git push --force** | Sobreescribe el historial remoto — operación destructiva, usar con cuidado |
 | **Claude Code** | Agente IA de Anthropic integrado en VS Code con acceso al proyecto completo |
 | **Skills (Claude)** | Módulos de conocimiento especializado que Claude carga según el contexto |
+| **Fuente única de verdad** | Patrón donde todos los datos vienen de un solo sitio, evitando inconsistencias |
+| **SAPI (PHP)** | Server API — cómo se ejecuta PHP (cli, cgi-fcgi, litespeed...). Importante en cron jobs |
+| **Migración de BD** | Modificar la estructura de una base de datos existente sin perder datos |
 
 ---
 

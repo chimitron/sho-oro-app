@@ -104,89 +104,135 @@
     </div>
 
     <script>
-        // CONFIGURACIÓN CON NUEVOS EXTRAS
+        // ── CONFIGURACIÓN DE QUILATES ──────────────────────────────────
+        // Cada quilate tiene: label, multiplicador, pureza y extra
         const KTS = [
-            { l: '24KT', m: 1.000, p: 999, extra: 0.80 }, 
+            { l: '24KT', m: 1.000, p: 999, extra: 0.80 },
             { l: '21KT', m: 0.900, p: 900, extra: 0.75 },
-            { l: '18KT', m: 0.750, p: 750, extra: 0.70 }, 
-            { l: '14KT', m: 0.535, p: 535, extra: 0.60 }, 
+            { l: '18KT', m: 0.750, p: 750, extra: 0.70 },
+            { l: '14KT', m: 0.535, p: 535, extra: 0.60 },
             { l: '9KT', m: 0.375, p: 375, extra: 0.50 }
         ];
 
-        let goldPrice = 0;
-        let selectedKt = 750;
-        let lastCronTime = null; // Hora del último cron (viene de la DB, no del dispositivo)
+        let goldPrice = 0;   // Precio BID del oro en EUR/gr (viene de la DB)
+        let selectedKt = 750; // Quilate seleccionado en la calculadora
 
+        // ── FÓRMULAS DE NEGOCIO ────────────────────────────────────────
+        // Precio mayorista = (precio spot × multiplicador) - 2.50€ costes fijos
         const calcW = (f, m) => (f * m) - 2.50;
-        const calcR = (w, extra) => (w * 0.94) - 6.00 + extra; // Se aplica el extra aquí
+        // Precio compra = (mayorista × 0.94 descuento) - 6.00€ operativos + extra quilate
+        const calcR = (w, extra) => (w * 0.94) - 6.00 + extra;
 
-        function findGoldBid(obj) {
-            if (!obj || typeof obj !== 'object') return null;
-            if (obj.EUR && obj.EUR.bid) return obj.EUR.bid;
-            if (obj.eur && obj.eur.bid) return obj.eur.bid;
-            for (let key in obj) {
-                if (typeof obj[key] === 'object') {
-                    const found = findGoldBid(obj[key]);
-                    if (found) return found;
-                }
-            }
-            return null;
-        }
-
-        // Busca específicamente el BID de la plata en EUR dentro del JSON de la API
-        function findSilverBid(obj) {
-            if (!obj || typeof obj !== 'object') return null;
-            // La plata viene bajo la clave "Silver" con su propio bloque EUR
-            if (obj.Silver && obj.Silver.EUR && obj.Silver.EUR.bid) return obj.Silver.EUR.bid;
-            if (obj.silver && obj.silver.EUR && obj.silver.EUR.bid) return obj.silver.EUR.bid;
-            for (let key in obj) {
-                if (typeof obj[key] === 'object') {
-                    const found = findSilverBid(obj[key]);
-                    if (found) return found;
-                }
-            }
-            return null;
-        }
-
-        async function fetchPrices() {
+        // ── ESTADO DE LA CABECERA ──────────────────────────────────────
+        // Actualiza el badge de estado con el mensaje y color apropiados
+        function setStatus(tipo, mensaje) {
             const text = document.getElementById('status-text');
             const dot = document.getElementById('status-dot');
+
+            // Tipos posibles: ok (verde), warning (ámbar), error (rojo), loading (ámbar pulsante)
+            const estilos = {
+                ok:      { dotClass: 'w-1.5 h-1.5 bg-green-500 rounded-full',              textClass: 'text-green-600 font-bold' },
+                warning: { dotClass: 'w-1.5 h-1.5 bg-amber-500 rounded-full',              textClass: 'text-amber-600 font-bold' },
+                error:   { dotClass: 'w-1.5 h-1.5 bg-red-500 rounded-full',                textClass: 'text-red-500 font-bold' },
+                loading: { dotClass: 'w-1.5 h-1.5 bg-amber-500 rounded-full status-pulse', textClass: 'text-slate-500' },
+            };
+
+            const estilo = estilos[tipo] || estilos.loading;
+            dot.className = estilo.dotClass;
+            text.className = estilo.textClass;
+            text.innerText = mensaje;
+        }
+
+        // ── FUNCIÓN PRINCIPAL: OBTENER TODOS LOS DATOS ─────────────────
+        // Una sola fuente de verdad: api.php (que lee de la base de datos)
+        // El cron.php guarda los datos → api.php los sirve → el frontend los muestra
+        async function fetchData() {
             try {
-                const res = await fetch('bridge.php?nocache=' + Date.now());
+                const res = await fetch('api.php?action=history&days=7');
+
+                // Si el servidor devuelve error HTTP
+                if (!res.ok) {
+                    setStatus('error', 'Error Servidor');
+                    return;
+                }
+
                 const data = await res.json();
-                const bid = findGoldBid(data);
-                const silverBid = findSilverBid(data);
-                if (bid) {
-                    goldPrice = parseFloat(bid);
-                    // Usamos la hora del último cron (guardada por fetchHistory desde la DB)
-                    // Si aún no ha llegado ese dato, mostramos "Conectado" de forma provisional
-                    text.innerText = lastCronTime ? `Sincronizado · ${lastCronTime}` : 'Conectado';
-                    text.className = "text-green-600 font-bold";
-                    dot.className = "w-1.5 h-1.5 bg-green-500 rounded-full";
-                    // Mostramos el precio de la plata si viene en la respuesta
-                    if (silverBid) {
-                        document.getElementById('silver-price').innerText = parseFloat(silverBid).toFixed(2);
-                    }
-                    render();
-                } else { throw new Error(); }
+
+                // Si api.php devolvió un error en el JSON
+                if (data.error) {
+                    setStatus('error', 'Error BD');
+                    return;
+                }
+
+                // Si no hay datos en la base de datos (nunca se ha ejecutado el cron)
+                if (!data.latest) {
+                    setStatus('error', 'Sin datos');
+                    document.getElementById('fixing-price').innerText = '—';
+                    document.getElementById('silver-price').innerText = '—';
+                    document.getElementById('price-chart').classList.add('hidden');
+                    document.getElementById('chart-empty').classList.remove('hidden');
+                    return;
+                }
+
+                // ── Comprobar si el cron está funcionando ──────────────
+                // Si el último registro tiene más de 60 minutos, algo va mal
+                const lastUpdate = new Date(data.last_updated.replace(' ', 'T') + 'Z');
+                const ahora = new Date();
+                const minutosSinCron = (ahora - lastUpdate) / 1000 / 60;
+
+                // Formateamos la hora del último cron para mostrarla
+                const horaCron = lastUpdate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+                if (minutosSinCron > 60) {
+                    // El cron lleva más de 60 minutos sin ejecutarse
+                    setStatus('error', `Error Cron · ${horaCron}`);
+                } else {
+                    // Todo bien — mostramos la hora de la última sincronización
+                    setStatus('ok', `Sincronizado · ${horaCron}`);
+                }
+
+                // ── Actualizar precio del oro (BID OFICIAL) ───────────
+                goldPrice = data.latest.price_eur;
+                document.getElementById('fixing-price').innerText = `${goldPrice.toFixed(2)} €/gr`;
+
+                // ── Actualizar precio de la plata ──────────────────────
+                if (data.latest.silver_eur !== null && data.latest.silver_eur !== undefined) {
+                    document.getElementById('silver-price').innerText = data.latest.silver_eur.toFixed(2);
+                } else {
+                    document.getElementById('silver-price').innerText = '—';
+                }
+
+                // ── Renderizar tarjetas de precios por quilate ────────
+                render();
+
+                // ── Renderizar gráfica ────────────────────────────────
+                if (data.history && data.history.length > 1) {
+                    document.getElementById('price-chart').classList.remove('hidden');
+                    document.getElementById('chart-empty').classList.add('hidden');
+                    renderChart(data.history);
+                } else {
+                    document.getElementById('price-chart').classList.add('hidden');
+                    document.getElementById('chart-empty').classList.remove('hidden');
+                }
+
             } catch (e) {
-                text.innerText = "Error Red";
-                text.className = "text-red-500 font-bold";
-                dot.className = "w-1.5 h-1.5 bg-red-600 rounded-full";
+                // Error de red (servidor caído, sin conexión, etc.)
+                setStatus('error', 'Error Red');
             }
         }
 
+        // ── RENDERIZAR TARJETAS DE PRECIOS ─────────────────────────────
         function render() {
             const list = document.getElementById('price-list');
             list.innerHTML = '';
             KTS.forEach(kt => {
                 const w = calcW(goldPrice, kt.m);
-                const r = calcR(w, kt.extra); // Pasamos el extra al cálculo
+                const r = calcR(w, kt.extra);
                 const diff = w - r;
-                
+
                 const card = document.createElement('div');
                 card.className = "p-4 rounded-[1.5rem] border bg-white border-slate-200 shadow-sm flex flex-col justify-between min-h-[110px] max-h-[150px] overflow-hidden";
-                
+
                 card.innerHTML = `
                     <div class="flex justify-between items-start">
                         <div class="flex flex-col">
@@ -210,19 +256,19 @@
                     </div>`;
                 list.appendChild(card);
             });
-            document.getElementById('fixing-price').innerText = `${goldPrice.toFixed(2)} €/gr`;
             runCalc();
         }
 
-        function openCalc() { 
-            document.getElementById('calc-sheet').classList.remove('hidden'); 
-            setTimeout(() => document.getElementById('calc-content').classList.remove('translate-y-full'), 10); 
-            renderCalcKts(); 
+        // ── CALCULADORA ────────────────────────────────────────────────
+        function openCalc() {
+            document.getElementById('calc-sheet').classList.remove('hidden');
+            setTimeout(() => document.getElementById('calc-content').classList.remove('translate-y-full'), 10);
+            renderCalcKts();
         }
-        
-        function closeCalc() { 
-            document.getElementById('calc-content').classList.add('translate-y-full'); 
-            setTimeout(() => document.getElementById('calc-sheet').classList.add('hidden'), 500); 
+
+        function closeCalc() {
+            document.getElementById('calc-content').classList.add('translate-y-full');
+            setTimeout(() => document.getElementById('calc-sheet').classList.add('hidden'), 500);
         }
 
         function renderCalcKts() {
@@ -242,43 +288,12 @@
             const weight = parseFloat(document.getElementById('input-weight').value) || 0;
             const merma = parseFloat(document.getElementById('input-merma').value) || 0;
             const kt = KTS.find(k => k.p === selectedKt);
-            const r = calcR(calcW(goldPrice, kt.m), kt.extra); // Aplicamos el extra en la calculadora
+            const r = calcR(calcW(goldPrice, kt.m), kt.extra);
             document.getElementById('calc-result').innerText = `${Math.max(0, (weight - merma) * r).toFixed(2)}€`;
         }
 
-        // ── Historial y gráfica ──────────────────────────────────────────
-
+        // ── GRÁFICA ────────────────────────────────────────────────────
         let priceChart = null;
-
-        async function fetchHistory() {
-            try {
-                const res  = await fetch('api.php?action=history&days=7');
-                const data = await res.json();
-
-                if (data.history && data.history.length > 1) {
-                    renderChart(data.history);
-                } else {
-                    document.getElementById('price-chart').classList.add('hidden');
-                    document.getElementById('chart-empty').classList.remove('hidden');
-                }
-
-                // Guardamos la hora real del último cron (campo "recorded_at" de la DB)
-                if (data.last_updated) {
-                    const d = new Date(data.last_updated.replace(' ', 'T') + 'Z');
-                    lastCronTime = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
-                    // Si fetchPrices ya terminó (badge ya es verde), corregimos la hora
-                    const dot = document.getElementById('status-dot');
-                    const statusText = document.getElementById('status-text');
-                    if (dot.classList.contains('bg-green-500')) {
-                        statusText.innerText = `Sincronizado · ${lastCronTime}`;
-                    }
-                }
-            } catch (e) {
-                document.getElementById('price-chart').classList.add('hidden');
-                document.getElementById('chart-empty').classList.remove('hidden');
-            }
-        }
 
         function renderChart(history) {
             const labels = history.map(r => {
@@ -331,15 +346,17 @@
             });
         }
 
-        // ── Init ─────────────────────────────────────────────────────────
-
+        // ── INICIALIZACIÓN ─────────────────────────────────────────────
         document.getElementById('input-weight').addEventListener('input', runCalc);
         document.getElementById('input-merma').addEventListener('input', runCalc);
         lucide.createIcons();
-        fetchPrices();
-        fetchHistory();
-        setInterval(fetchPrices, 1800000);
-        setInterval(fetchHistory, 1800000);
+
+        // Cargamos todo al arrancar
+        fetchData();
+
+        // Refrescamos cada 5 minutos (300.000 ms)
+        // Así detectamos nuevos datos del cron rápidamente
+        setInterval(fetchData, 300000);
     </script>
 </body>
 </html>

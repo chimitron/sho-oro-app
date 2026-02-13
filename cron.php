@@ -8,8 +8,11 @@ declare(strict_types=1);
  *   0 * * * * php /ruta/completa/a/cron.php >> /var/log/oro-cron.log 2>&1
  */
 
-// Solo ejecutable desde CLI
-if (php_sapi_name() !== 'cli') {
+// Bloqueamos acceso desde navegador web (litespeed, apache, nginx, fpm)
+// Pero permitimos CLI y CGI (que es lo que usan algunos cron en hosting compartido)
+$sapi = php_sapi_name();
+$sapisWeb = ['litespeed', 'apache2handler', 'fpm-fcgi', 'phpdbg'];
+if (in_array($sapi, $sapisWeb, true)) {
     http_response_code(403);
     exit('Acceso denegado.');
 }
@@ -38,8 +41,13 @@ function fetchFromAPI(): ?string {
     return $res ?: null;
 }
 
+// Guardamos log en data/cron.log para poder consultarlo remotamente
 function log_line(string $msg): void {
-    echo date('Y-m-d H:i:s') . ' | ' . $msg . PHP_EOL;
+    $linea = date('Y-m-d H:i:s') . ' | ' . $msg . PHP_EOL;
+    echo $linea;
+    // Escribimos también en fichero (misma carpeta que la BD)
+    $logFile = __DIR__ . '/data/cron.log';
+    file_put_contents($logFile, $linea, FILE_APPEND | LOCK_EX);
 }
 
 // --- Main ---
@@ -57,16 +65,19 @@ if (!$data) {
 }
 
 $price  = extractBid($data);
+$silver = extractSilverBid($data);  // Extraemos también el precio de la plata
 $tokens = extractTokens($data);
 
 if ($price === null) {
-    log_line('ERROR: no se encontró el precio BID en la respuesta');
+    log_line('ERROR: no se encontró el precio BID del oro en la respuesta');
     log_line('RAW: ' . substr($raw, 0, 200));
     exit(1);
 }
 
-savePrice($price, $tokens);
+// Guardamos oro + plata + tokens en la base de datos
+savePrice($price, $silver, $tokens);
 
-$tokensStr = $tokens !== null ? "Tokens restantes: $tokens" : 'Tokens: desconocidos';
-log_line("OK | Precio: {$price}€/gr | $tokensStr");
+$silverStr = $silver !== null ? "Plata: {$silver}€/gr" : 'Plata: no disponible';
+$tokensStr = $tokens !== null ? "Tokens: $tokens" : 'Tokens: desconocidos';
+log_line("OK | Oro: {$price}€/gr | $silverStr | $tokensStr");
 exit(0);

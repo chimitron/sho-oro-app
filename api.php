@@ -16,9 +16,11 @@ if ($action !== 'history') {
 }
 
 try {
-    $db   = getDB();
+    $db = getDB();
+
+    // 1. Historial de precios (para la gráfica)
     $stmt = $db->prepare("
-        SELECT recorded_at, price_eur, tokens_remaining
+        SELECT recorded_at, price_eur, silver_eur, tokens_remaining
         FROM   prices
         WHERE  recorded_at >= datetime('now', '-' || :days || ' days')
         ORDER  BY recorded_at ASC
@@ -31,19 +33,33 @@ try {
         $rows[] = [
             'recorded_at'      => $row['recorded_at'],
             'price_eur'        => (float) $row['price_eur'],
+            'silver_eur'       => $row['silver_eur'] !== null ? (float) $row['silver_eur'] : null,
             'tokens_remaining' => $row['tokens_remaining'] !== null ? (int) $row['tokens_remaining'] : null,
         ];
     }
-    $db->close();
 
-    // Los tokens más recientes son los más relevantes
-    $latestRow      = count($rows) > 0 ? end($rows) : null;
-    $tokensRemaining = $latestRow ? $latestRow['tokens_remaining'] : null;
+    // 2. Último registro (el más reciente de toda la tabla, no solo del rango)
+    //    Esto nos da el precio actual y la hora del último cron
+    $latestStmt = $db->prepare("
+        SELECT recorded_at, price_eur, silver_eur, tokens_remaining
+        FROM   prices
+        ORDER  BY recorded_at DESC
+        LIMIT  1
+    ");
+    $latestResult = $latestStmt->execute();
+    $latestRow = $latestResult->fetchArray(SQLITE3_ASSOC);
+
+    $db->close();
 
     echo json_encode([
         'history'          => $rows,
-        'tokens_remaining' => $tokensRemaining,
-        // Fecha y hora exacta en que cron.php guardó el último precio
+        // Datos del último registro (fuente única de verdad para el frontend)
+        'latest' => $latestRow ? [
+            'price_eur'        => (float) $latestRow['price_eur'],
+            'silver_eur'       => $latestRow['silver_eur'] !== null ? (float) $latestRow['silver_eur'] : null,
+            'recorded_at'      => $latestRow['recorded_at'],
+            'tokens_remaining' => $latestRow['tokens_remaining'] !== null ? (int) $latestRow['tokens_remaining'] : null,
+        ] : null,
         'last_updated'     => $latestRow ? $latestRow['recorded_at'] : null,
         'count'            => count($rows),
         'days'             => $days,
