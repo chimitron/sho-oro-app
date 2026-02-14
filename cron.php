@@ -20,6 +20,30 @@ if (in_array($sapi, $sapisWeb, true)) {
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/config.php';
 
+// ── CONTROL HORARIO DEL MERCADO ─────────────────────────────────
+// El mercado del oro europeo opera de lunes a viernes, ~07:00 a ~23:59 (hora España).
+// Fuera de ese horario no hay cotización nueva, así que nos ahorramos la consulta.
+//
+// Reglas:
+//   - Sábado y domingo → mercado cerrado todo el día
+//   - Lunes a viernes de 00:00 a 06:59 → mercado cerrado (sesión nocturna)
+//   - Lunes a viernes de 07:00 a 23:59 → mercado abierto, consultamos
+
+// Usamos zona horaria de España para que coincida con el mercado europeo
+$zonaEspana   = new DateTimeZone('Europe/Madrid');
+$ahoraEspana  = new DateTime('now', $zonaEspana);
+$diaSemana    = (int) $ahoraEspana->format('N');  // 1=lunes ... 7=domingo
+$horaActual   = (int) $ahoraEspana->format('G');  // 0-23 sin cero inicial
+
+$esFinDeSemana = ($diaSemana >= 6);                // 6=sábado, 7=domingo
+$esNocturno    = ($horaActual < 7);                // De 00:00 a 06:59
+
+if ($esFinDeSemana || $esNocturno) {
+    // El cron se ejecuta pero no hace la consulta — ahorramos llamadas a la API
+    log_line('SKIP | Mercado cerrado — ' . $ahoraEspana->format('l H:i') . ' (hora España)');
+    exit(0);
+}
+
 // Construimos la URL completa combinando base + credenciales
 define('API_URL', API_BASE_URL . '?key=' . API_KEY . '&action=' . API_ACTION);
 

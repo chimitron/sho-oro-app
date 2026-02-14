@@ -135,12 +135,30 @@
                 warning: { dotClass: 'w-1.5 h-1.5 bg-amber-500 rounded-full',              textClass: 'text-amber-600 font-bold' },
                 error:   { dotClass: 'w-1.5 h-1.5 bg-red-500 rounded-full',                textClass: 'text-red-500 font-bold' },
                 loading: { dotClass: 'w-1.5 h-1.5 bg-amber-500 rounded-full status-pulse', textClass: 'text-slate-500' },
+                closed:  { dotClass: 'w-1.5 h-1.5 bg-slate-400 rounded-full',              textClass: 'text-slate-400 font-bold' },
             };
 
             const estilo = estilos[tipo] || estilos.loading;
             dot.className = estilo.dotClass;
             text.className = estilo.textClass;
             text.innerText = mensaje;
+        }
+
+        // ── DETECCIÓN HORARIO MERCADO ─────────────────────────────────
+        // Comprobamos si el mercado del oro está cerrado según hora española.
+        // Devuelve true si estamos fuera de horario (noches L-V o fin de semana)
+        function mercadoCerrado() {
+            // Obtenemos la hora actual en zona horaria de España
+            const ahoraEspana = new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' });
+            const fechaEspana = new Date(ahoraEspana);
+
+            const diaSemana = fechaEspana.getDay();  // 0=domingo, 6=sábado
+            const hora = fechaEspana.getHours();      // 0-23
+
+            const esFinDeSemana = (diaSemana === 0 || diaSemana === 6);
+            const esNocturno = (hora < 7); // De 00:00 a 06:59
+
+            return esFinDeSemana || esNocturno;
         }
 
         // ── FUNCIÓN PRINCIPAL: OBTENER TODOS LOS DATOS ─────────────────
@@ -183,7 +201,10 @@
                 // Formateamos la hora del último cron para mostrarla
                 const horaCron = lastUpdate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-                if (minutosSinCron > 60) {
+                if (mercadoCerrado()) {
+                    // El mercado está cerrado — es normal que no haya datos nuevos
+                    setStatus('closed', `Mercado Cerrado · ${horaCron}`);
+                } else if (minutosSinCron > 60) {
                     // El cron lleva más de 60 minutos sin ejecutarse
                     setStatus('error', `Error Cron · ${horaCron}`);
                 } else {
